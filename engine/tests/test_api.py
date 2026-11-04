@@ -231,3 +231,79 @@ def test_callback_no_dominio_do_site(cliente, monkeypatch):
     # o domínio do site vale só para o callback, não para baixar áudio
     ruim = cliente.post("/processar", json=pedido(audio_url="https://prismo.app/musica.mp3", song_id="outra"), headers=AUTH)
     assert ruim.status_code == 400
+
+
+# ---------------------------------------------------------------- links assinados
+
+LINK = "https://" + HOST + "/storage/v1/object/upload/sign/{bucket}/u1/musica-123/{arquivo}?token=abc"
+
+
+def test_caminho_do_link():
+    from prismo_engine.armazenamento import ErroArmazenamento, caminho_do_link
+
+    assert caminho_do_link(LINK.format(bucket="stems", arquivo="voz.mp3")) == ("stems", "u1/musica-123/voz.mp3")
+    for ruim in ("https://h/storage/v1/object/stems/x.mp3", "https://h/storage/v1/object/upload/sign/stems/../x?token=1"):
+        with pytest.raises(ErroArmazenamento):
+            caminho_do_link(ruim)
+
+
+def test_envia_pelos_links_do_site(tmp_path, ambiente_trabalho, monkeypatch):
+    _, callbacks = ambiente_trabalho
+    enviados = []
+    monkeypatch.setattr(api, "enviar_por_link", lambda link, arquivo: enviados.append(link) or api.caminho_do_link(link)[1])
+    uploads = {
+        "arquivos/cifra": LINK.format(bucket="results", arquivo="cifra.txt"),
+        "arquivos/musicxml": LINK.format(bucket="results", arquivo="partitura.musicxml"),
+        "arquivos/midi": LINK.format(bucket="results", arquivo="partitura.mid"),
+        "arquivos/tablatura": LINK.format(bucket="results", arquivo="tablatura.txt"),
+    }
+    cfg = config(tmp_path, supabase=False)  # sem chave de serviço no motor
+    api.Fila(cfg)._executar_trabalho(api.Trabalho(api.PedidoProcessamento(**pedido(uploads=uploads))))
+    r = callbacks[-1]["resultado"]
+    assert callbacks[-1]["tipo"] == "concluido"
+    assert r["arquivos"] == {"cifra": "u1/musica-123/cifra.txt", "tablatura": "u1/musica-123/tablatura.txt",
+                             "musicxml": "u1/musica-123/partitura.musicxml", "midi": "u1/musica-123/partitura.mid"}
+    assert len(enviados) == 4
+
+
+def test_recusa_links_de_outro_host(cliente):
+    ruim = {"faixas/voz": "https://outro.com/storage/v1/object/upload/sign/stems/a/voz.mp3?token=1"}
+    assert cliente.post("/processar", json=pedido(uploads=ruim), headers=AUTH).status_code == 400
+    chave_ruim = {"qualquer": LINK.format(bucket="stems", arquivo="voz.mp3")}
+    assert cliente.post("/processar", json=pedido(uploads=chave_ruim), headers=AUTH).status_code == 400
+
+
+# ---------------------------------------------------------------- fila remota (Modal)
+
+def test_fila_remota_dispara_uma_vez(tmp_path):
+    from prismo_engine.fila_remota import FilaRemota
+
+    estado, disparos = {}, []
+    fila = FilaRemota(config(tmp_path), estado, disparos.append)
+    app = api.criar_app(config(tmp_path), fila)
+    with TestClient(app) as c:
+        assert c.post("/processar", json=pedido(), headers=AUTH).json()["novo"] is True
+        assert c.post("/processar", json=pedido(), headers=AUTH).json()["novo"] is False
+        assert len(disparos) == 1 and disparos[0]["song_id"] == "musica-123"
+        assert c.get("/status/musica-123", headers=AUTH).json()["status"] == "na_fila"
+
+
+def test_fila_remota_reenvia_trabalho_perdido(tmp_path):
+    from prismo_engine import fila_remota
+
+    estado, disparos = {}, []
+    fila = fila_remota.FilaRemota(config(tmp_path), estado, disparos.append)
+    fila.adicionar(api.PedidoProcessamento(**pedido()))
+    estado["musica-123"]["atualizado_em"] -= fila_remota.PRAZO_TRABALHO + 1
+    _, novo = fila.adicionar(api.PedidoProcessamento(**pedido()))
+    assert novo and len(disparos) == 2
+
+
+def test_executor_remoto_atualiza_estado(tmp_path, ambiente_trabalho):
+    from prismo_engine.fila_remota import ExecutorRemoto, FilaRemota
+
+    estado = {}
+    FilaRemota(config(tmp_path), estado, lambda p: None).adicionar(api.PedidoProcessamento(**pedido()))
+    resumo = ExecutorRemoto(config(tmp_path), estado).executar(pedido())
+    assert resumo["status"] == "concluido"
+    assert estado["musica-123"]["status"] == "concluido"

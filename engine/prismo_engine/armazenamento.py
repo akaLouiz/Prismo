@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 import httpx
+from urllib.parse import unquote, urlparse
 
 TIPOS = {
     ".mp3": "audio/mpeg",
@@ -56,3 +57,32 @@ class Supabase:
         if resposta.status_code >= 300:
             raise ErroArmazenamento(f"Falha ao enviar {caminho} para o bucket {bucket}: {resposta.status_code} {resposta.text[:200]}")
         return caminho
+
+
+def caminho_do_link(url: str) -> tuple[str, str]:
+    """De um link de envio assinado do Supabase, extrai (bucket, caminho dentro do bucket).
+
+    Formato: https://<projeto>.supabase.co/storage/v1/object/upload/sign/<bucket>/<caminho>?token=...
+    """
+    partes = urlparse(url).path.split("/object/upload/sign/", 1)
+    if len(partes) != 2 or "/" not in partes[1]:
+        raise ErroArmazenamento("Link de envio em formato inesperado.")
+    bucket, caminho = partes[1].split("/", 1)
+    caminho = unquote(caminho)
+    if not caminho or ".." in caminho.split("/"):
+        raise ErroArmazenamento("Link de envio em formato inesperado.")
+    return bucket, caminho
+
+
+def enviar_por_link(url: str, arquivo: Path, timeout: float = 120.0) -> str:
+    """Envia o arquivo para um link assinado (vale só para aquele arquivo e por tempo limitado).
+
+    Não precisa de nenhuma chave do Supabase no motor. Retorna o caminho dentro do bucket.
+    """
+    _, caminho = caminho_do_link(url)
+    tipo = TIPOS.get(arquivo.suffix.lower()) or mimetypes.guess_type(arquivo.name)[0] or "application/octet-stream"
+    with arquivo.open("rb") as f:
+        resposta = httpx.put(url, content=f.read(), headers={"Content-Type": tipo, "x-upsert": "true"}, timeout=timeout)
+    if resposta.status_code >= 300:
+        raise ErroArmazenamento(f"Falha ao enviar {caminho}: {resposta.status_code} {resposta.text[:200]}")
+    return caminho

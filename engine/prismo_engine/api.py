@@ -45,7 +45,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .armazenamento import Supabase, comprimir_para_mp3
+from .armazenamento import Supabase, caminho_do_link, comprimir_para_mp3, enviar_por_link
 from .pipeline import ETAPAS, processar
 
 log = logging.getLogger("prismo.api")
@@ -114,6 +114,9 @@ class PedidoProcessamento(BaseModel):
     # Pasta dentro dos buckets onde os arquivos serão salvos (ex.: "<id do usuário>/<id da música>").
     # O Storage do site só deixa cada usuário abrir a própria pasta. Padrão: o song_id.
     pasta_destino: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}(/[A-Za-z0-9_-]{1,64}){0,2}$")
+    # Links de envio assinados, um por arquivo, gerados pelo site (o motor não precisa de chave do Supabase).
+    # Chaves: "faixas/<voz|guitarra|baixo|bateria|piano|outros>" e "arquivos/<cifra|tablatura|musicxml|midi>".
+    uploads: dict[str, str] | None = Field(default=None, max_length=20)
 
 
 @dataclass
@@ -224,7 +227,7 @@ class Fila:
                 ao_progredir=progresso,
             )
             resultado["arquivo"] = pedido.nome_arquivo or resultado["arquivo"]
-            resultado = self._publicar_arquivos(pedido.pasta_destino or pedido.song_id, resultado)
+            resultado = self._publicar_arquivos(pedido.pasta_destino or pedido.song_id, resultado, pedido.uploads)
             resultado["tempo_total"] = round(time.perf_counter() - inicio, 1)
             trabalho.status = "concluido"
             trabalho.concluido_em = time.time()
@@ -245,9 +248,27 @@ class Fila:
         finally:
             shutil.rmtree(pasta, ignore_errors=True)
 
-    def _publicar_arquivos(self, pasta: str, resultado: dict) -> dict:
-        """Envia faixas e materiais ao Supabase e troca os caminhos locais pelos do Storage."""
+    def _publicar_arquivos(self, pasta: str, resultado: dict, uploads: dict[str, str] | None = None) -> dict:
+        """Envia faixas e materiais ao Storage e troca os caminhos locais pelos do Storage.
+
+        Com `uploads` (links assinados do site), cada arquivo vai para o seu link. Sem eles,
+        usa a chave de serviço do Supabase, se estiver configurada.
+        """
         cfg = self.config
+        if uploads:
+            faixas, arquivos = {}, {}
+            for nome, caminho in resultado.get("faixas", {}).items():
+                link = uploads.get(f"faixas/{nome}")
+                if link:
+                    faixas[nome] = enviar_por_link(link, comprimir_para_mp3(Path(caminho)))
+            for tipo, caminho in resultado.get("arquivos", {}).items():
+                link = uploads.get(f"arquivos/{tipo}")
+                if link:
+                    arquivos[tipo] = enviar_por_link(link, Path(caminho))
+            resultado["faixas"] = faixas
+            resultado["arquivos"] = arquivos
+            resultado["buckets"] = {"faixas": cfg.bucket_faixas, "arquivos": cfg.bucket_resultados}
+            return resultado
         if not (cfg.supabase_url and cfg.supabase_chave):
             log.warning("Supabase não configurado: os arquivos ficam só no servidor e serão apagados.")
             resultado["faixas"] = {}
@@ -378,6 +399,13 @@ def criar_app(config: Config | None = None, fila: Fila | None = None) -> FastAPI
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "audio_url precisa ser https e de um host permitido.")
         if pedido.callback_url and not _host_permitido(pedido.callback_url, config.hosts_callback):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "callback_url precisa ser https e de um host permitido.")
+        for chave, link in (pedido.uploads or {}).items():
+            if not chave.startswith(("faixas/", "arquivos/")) or not _host_permitido(link, config.hosts_permitidos):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "uploads precisa ter links https de um host permitido.")
+            try:
+                caminho_do_link(link)
+            except Exception:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Link de envio inválido em {chave}.")
         trabalho, novo = fila.adicionar(pedido)
         resposta = trabalho.resumo()
         resposta["novo"] = novo

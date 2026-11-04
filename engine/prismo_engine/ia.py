@@ -74,9 +74,15 @@ def separar_faixas(caminho: str, pasta_saida: Path, dispositivo: str | None = No
 def transcrever_notas(caminho: str, instrumento: str = "guitarra") -> list[Nota]:
     """Áudio (de preferência uma faixa isolada) -> notas, com o Basic Pitch."""
     try:
+        from basic_pitch import ICASSP_2022_MODEL_PATH
         from basic_pitch.inference import predict
     except ImportError as erro:
         raise DependenciaAusente("Instale a transcrição com: pip install -e \".[transcricao]\"") from erro
+
+    # A versão ONNX do modelo roda na CPU e não disputa a GPU com a separação de faixas
+    modelo = Path(ICASSP_2022_MODEL_PATH).parent / "nmp.onnx"
+    if not modelo.exists():
+        modelo = Path(ICASSP_2022_MODEL_PATH)
 
     # Faixas de frequência por instrumento reduzem notas fantasmas
     limites = {
@@ -89,6 +95,7 @@ def transcrever_notas(caminho: str, instrumento: str = "guitarra") -> list[Nota]
     minimo, maximo = limites.get(instrumento, (30.0, 4000.0))
     _, _, eventos = predict(
         str(caminho),
+        modelo,
         onset_threshold=0.5,
         frame_threshold=0.3,
         minimum_note_length=80,
@@ -133,12 +140,19 @@ def transcrever_letra(caminho_voz: str, idioma: str | None = "pt", modelo: str =
     except ImportError as erro:
         raise DependenciaAusente("Instale a letra com: pip install -e \".[letra]\"") from erro
 
-    whisper = WhisperModel(modelo, device="auto", compute_type="auto")
-    segmentos, _ = whisper.transcribe(str(caminho_voz), language=idioma, word_timestamps=True, vad_filter=True)
-    palavras = []
-    for seg in segmentos:
-        for w in seg.words or []:
-            texto = w.word.strip()
-            if texto:
-                palavras.append(Palavra(float(w.start), float(w.end), texto))
-    return palavras
+    def reconhecer(device: str, compute_type: str) -> list[Palavra]:
+        whisper = WhisperModel(modelo, device=device, compute_type=compute_type)
+        segmentos, _ = whisper.transcribe(str(caminho_voz), language=idioma, word_timestamps=True, vad_filter=True)
+        palavras = []
+        for seg in segmentos:
+            for w in seg.words or []:
+                texto = w.word.strip()
+                if texto:
+                    palavras.append(Palavra(float(w.start), float(w.end), texto))
+        return palavras
+
+    try:
+        return reconhecer("auto", "auto")
+    except (RuntimeError, OSError, ValueError):
+        # Bibliotecas de GPU ausentes ou incompatíveis: a letra sai na CPU, um pouco mais devagar
+        return reconhecer("cpu", "int8")

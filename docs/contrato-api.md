@@ -36,7 +36,11 @@ Corpo:
   "separar": true,
   "callback_url": "https://SEU-PROJETO.supabase.co/functions/v1/engine-callback",
   "nome_arquivo": "ensaio-domingo.mp3",
-  "pasta_destino": "uuid-do-usuario/uuid-da-musica"
+  "pasta_destino": "uuid-do-usuario/uuid-da-musica",
+  "uploads": {
+    "faixas/voz": "https://SEU-PROJETO.supabase.co/storage/v1/object/upload/sign/stems/<pasta>/voz.mp3?token=...",
+    "arquivos/cifra": "https://SEU-PROJETO.supabase.co/storage/v1/object/upload/sign/results/<pasta>/cifra.txt?token=..."
+  }
 }
 ```
 
@@ -44,6 +48,7 @@ Corpo:
 - `audio_url`: URL assinada do bucket `uploads`, válida por pelo menos 1 hora.
 - `instrumento`: `guitarra`, `violao`, `baixo`, `voz` ou `piano`.
 - `nome_arquivo`: nome original, usado no resultado e para descobrir o formato.
+- `uploads`: um link de envio assinado por arquivo, gerado pelo site com `createSignedUploadUrl` (vale 2 horas e só para aquele arquivo). Chaves: `faixas/<voz|guitarra|baixo|bateria|piano|outros>` e `arquivos/<cifra|tablatura|musicxml|midi>`. Com eles, o motor não precisa de nenhuma chave do Supabase. Sem eles, o motor usa `SUPABASE_SERVICE_ROLE_KEY`, se estiver configurada.
 - `pasta_destino`: pasta, dentro dos buckets, onde faixas e arquivos são salvos. O Storage do site só deixa cada usuário abrir a pasta que começa com o próprio id, então use `<id do usuário>/<id da música>`. Padrão: o `song_id`.
 
 Resposta `202`:

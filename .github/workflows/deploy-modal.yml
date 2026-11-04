@@ -1,0 +1,48 @@
+name: Publicar motor no Modal
+
+# Roda os testes do motor e, se passarem, publica no Modal.
+# Dispara a cada atualização na pasta engine/ ou manualmente (aba Actions > Run workflow).
+on:
+  push:
+    branches: [main]
+    paths: ["engine/**", ".github/workflows/deploy-modal.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-modal
+  cancel-in-progress: false
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg libsndfile1
+      - run: pip install -e ".[api,transcricao,dev]" "numpy<2"
+      - run: pytest -q -p no:warnings
+        env:
+          TF_CPP_MIN_LOG_LEVEL: "3"
+
+  publicar:
+    needs: testes
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install modal
+      - run: modal deploy modal_app.py
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
