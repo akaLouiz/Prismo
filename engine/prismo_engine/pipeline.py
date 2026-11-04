@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
@@ -27,6 +28,16 @@ INSTRUMENTOS = {
 COM_TABLATURA = {"guitarra", "violao", "baixo"}
 FAIXAS_HARMONICAS = ("guitarra", "baixo", "piano", "outros")
 
+# Etapas na ordem em que acontecem (são as mesmas que o site mostra ao usuário)
+ETAPAS = {
+    "preparo": "Preparando o áudio",
+    "separacao": "Separando as faixas",
+    "analise": "Analisando tom e acordes",
+    "letra": "Reconhecendo a letra",
+    "transcricao": "Transcrevendo as notas",
+    "materiais": "Montando cifra, tablatura e partitura",
+}
+
 
 def _log(msg: str) -> None:
     print(f"[prismo] {msg}", flush=True)
@@ -40,7 +51,9 @@ def processar(
     letra: bool = True,
     transcrever: bool = True,
     dispositivo: str | None = None,
+    ao_progredir: Callable[[str], None] | None = None,
 ) -> dict:
+    """Processa um arquivo. `ao_progredir(etapa)` é chamado no início de cada etapa."""
     if instrumento not in INSTRUMENTOS:
         raise ValueError(f"Instrumento desconhecido: {instrumento}. Opções: {', '.join(INSTRUMENTOS)}")
     origem = Path(arquivo)
@@ -50,18 +63,24 @@ def processar(
     tempos: dict[str, float] = {}
     relogio = time.perf_counter()
 
+    def avisar(etapa: str) -> None:
+        if ao_progredir:
+            ao_progredir(etapa)
+
     def marcar(etapa: str) -> None:
         nonlocal relogio
         agora = time.perf_counter()
         tempos[etapa] = round(agora - relogio, 2)
         relogio = agora
 
+    avisar("preparo")
     audio = ia.extrair_audio(str(origem), saida)
     marcar("preparo")
 
     # 1. Separação
     faixas: dict[str, Path] = {}
     if separar:
+        avisar("separacao")
         _log("Separando as faixas (pode levar alguns minutos sem GPU)...")
         try:
             faixas = ia.separar_faixas(str(audio), saida / "faixas", dispositivo)
@@ -70,6 +89,7 @@ def processar(
         marcar("separacao")
 
     # 2. Análise musical
+    avisar("analise")
     _log("Analisando tom, andamento e acordes...")
     mistura, sr = carregar_audio(str(audio))
     harmonia = None
@@ -85,6 +105,7 @@ def processar(
     # 3. Letra
     palavras: list[Palavra] = []
     if letra and "voz" in faixas:
+        avisar("letra")
         _log("Reconhecendo a letra na voz isolada...")
         try:
             palavras = ia.transcrever_letra(str(faixas["voz"]))
@@ -95,6 +116,7 @@ def processar(
     # 4. Transcrição do instrumento escolhido
     notas: list[Nota] = []
     if transcrever:
+        avisar("transcricao")
         faixa = faixas.get(INSTRUMENTOS[instrumento], audio)
         if faixa == audio and faixas:
             avisos.append(f"A faixa de {instrumento} não foi encontrada; transcrevendo a mistura.")
@@ -106,6 +128,7 @@ def processar(
         marcar("transcricao")
 
     # 5. Materiais
+    avisar("materiais")
     arquivos: dict[str, str] = {}
     primeira_batida = analise.batidas[0] if analise.batidas else None
     cifra = gerar_cifra(

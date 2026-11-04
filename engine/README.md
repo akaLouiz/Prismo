@@ -73,6 +73,20 @@ Opções úteis:
 - `--sem-letra`: não reconhece a letra
 - `--dispositivo cuda`: força o uso da GPU
 
+## API (o que o site chama)
+
+O motor também roda como servidor HTTP, que é como o site no Lovable vai usá-lo. O contrato completo está em [`docs/contrato-api.md`](../docs/contrato-api.md).
+
+Para rodar localmente:
+
+```bash
+pip install -e ".[completo]"
+cp .env.exemplo .env          # preencha PRISMO_TOKEN e os dados do Supabase
+prismo-api                    # sobe em http://localhost:8000
+```
+
+Teste com `http://localhost:8000/saude`. Em produção, use o `Dockerfile` num servidor com GPU NVIDIA: ele já instala tudo e baixa os modelos durante a construção.
+
 ## Testes
 
 ```bash

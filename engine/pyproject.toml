@@ -23,11 +23,14 @@ separacao = ["demucs>=4.0.1", "torch>=2.1,<2.9", "torchaudio>=2.1,<2.9"]
 transcricao = ["basic-pitch[onnx]>=0.4", "numpy<2"]
 # Letra sincronizada a partir da voz isolada
 letra = ["faster-whisper>=1.0"]
-completo = ["prismo-engine[separacao,transcricao,letra]"]
-dev = ["pytest>=8"]
+# Servidor HTTP que o site chama
+api = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "httpx>=0.27"]
+completo = ["prismo-engine[separacao,transcricao,letra,api]"]
+dev = ["pytest>=8", "httpx>=0.27"]
 
 [project.scripts]
 prismo = "prismo_engine.cli:main"
+prismo-api = "prismo_engine.api:main"
 
 [tool.setuptools.packages.find]
 include = ["prismo_engine*"]
