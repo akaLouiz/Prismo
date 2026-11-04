@@ -307,3 +307,21 @@ def test_executor_remoto_atualiza_estado(tmp_path, ambiente_trabalho):
     resumo = ExecutorRemoto(config(tmp_path), estado).executar(pedido())
     assert resumo["status"] == "concluido"
     assert estado["musica-123"]["status"] == "concluido"
+
+
+def test_configuracao_tolera_aspas_e_enderecos_completos(monkeypatch):
+    monkeypatch.setenv("PRISMO_TOKEN", ' "token-de-teste-com-mais-de-16" ')
+    monkeypatch.setenv("SUPABASE_URL", '"https://abc.supabase.co/"')
+    monkeypatch.setenv("PRISMO_HOSTS_CALLBACK", "https://prismo-song-scribe.lovable.app/, site.com.br ")
+    monkeypatch.delenv("PRISMO_HOSTS_PERMITIDOS", raising=False)
+    cfg = api.Config.do_ambiente()
+    assert cfg.token == "token-de-teste-com-mais-de-16"
+    assert cfg.supabase_url == "https://abc.supabase.co/"
+    assert cfg.hosts_permitidos == {"abc.supabase.co"}
+    assert cfg.hosts_callback == {"prismo-song-scribe.lovable.app", "site.com.br"}
+
+
+def test_saude_mostra_dominios_configurados(cliente):
+    conf = cliente.get("/saude").json()["configuracao"]
+    assert conf["hosts_audio"] == [HOST]
+    assert "prismo.app" in conf["hosts_callback"]

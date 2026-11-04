@@ -78,27 +78,48 @@ class Config:
 
     @classmethod
     def do_ambiente(cls) -> "Config":
-        token = os.environ.get("PRISMO_TOKEN", "")
+        token = _env("PRISMO_TOKEN") or ""
         if len(token) < 16:
             raise RuntimeError("Defina PRISMO_TOKEN com pelo menos 16 caracteres.")
-        supabase_url = os.environ.get("SUPABASE_URL") or None
-        hosts = {h.strip().lower() for h in os.environ.get("PRISMO_HOSTS_PERMITIDOS", "").split(",") if h.strip()}
+        supabase_url = _env("SUPABASE_URL")
+        hosts = _hosts(_env("PRISMO_HOSTS_PERMITIDOS"))
         if not hosts and supabase_url:
-            hosts = {urlparse(supabase_url).hostname or ""}
+            hosts = _hosts(supabase_url)
         return cls(
             token=token,
-            token_callback=os.environ.get("PRISMO_CALLBACK_TOKEN") or token,
+            token_callback=_env("PRISMO_CALLBACK_TOKEN") or token,
             supabase_url=supabase_url,
-            supabase_chave=os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or None,
-            bucket_faixas=os.environ.get("PRISMO_BUCKET_FAIXAS", "stems"),
-            bucket_resultados=os.environ.get("PRISMO_BUCKET_RESULTADOS", "results"),
+            supabase_chave=_env("SUPABASE_SERVICE_ROLE_KEY"),
+            bucket_faixas=_env("PRISMO_BUCKET_FAIXAS") or "stems",
+            bucket_resultados=_env("PRISMO_BUCKET_RESULTADOS") or "results",
             hosts_permitidos=hosts,
-            hosts_callback={h.strip().lower() for h in os.environ.get("PRISMO_HOSTS_CALLBACK", "").split(",") if h.strip()} or hosts,
-            max_bytes=int(float(os.environ.get("PRISMO_MAX_MB", "60")) * 1024 * 1024),
-            trabalhadores=max(1, int(os.environ.get("PRISMO_TRABALHADORES", "1"))),
-            dispositivo=os.environ.get("PRISMO_DISPOSITIVO") or None,
-            pasta=Path(os.environ.get("PRISMO_PASTA", "/tmp/prismo")),
+            hosts_callback=_hosts(_env("PRISMO_HOSTS_CALLBACK")) or hosts,
+            max_bytes=int(float(_env("PRISMO_MAX_MB") or "60") * 1024 * 1024),
+            trabalhadores=max(1, int(_env("PRISMO_TRABALHADORES") or "1")),
+            dispositivo=_env("PRISMO_DISPOSITIVO"),
+            pasta=Path(_env("PRISMO_PASTA") or "/tmp/prismo"),
         )
+
+
+def _env(nome: str) -> str | None:
+    """Lê uma variável de ambiente tolerando espaços e aspas coladas por engano."""
+    valor = os.environ.get(nome, "").strip().strip('"').strip("'").strip()
+    return valor or None
+
+
+def _hosts(valor: str | None) -> set[str]:
+    """Lista de domínios separados por vírgula. Aceita também endereços completos (https://site.com/)."""
+    hosts = set()
+    for parte in (valor or "").split(","):
+        parte = parte.strip().strip('"').strip("'").strip()
+        if not parte:
+            continue
+        if "://" not in parte:
+            parte = "https://" + parte
+        host = urlparse(parte).hostname
+        if host:
+            hosts.add(host.lower())
+    return hosts
 
 
 # ---------------------------------------------------------------- modelos
@@ -387,17 +408,30 @@ def criar_app(config: Config | None = None, fila: Fila | None = None) -> FastAPI
     def autenticar(authorization: str = Header(default="")) -> None:
         esperado = f"Bearer {config.token}"
         if not hmac.compare_digest(authorization.encode(), esperado.encode()):
+            log.warning("Pedido recusado: token inválido (confira ENGINE_TOKEN no site e PRISMO_TOKEN no motor).")
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token inválido.")
 
     @app.get("/saude")
     def saude() -> dict:
-        return {"ok": True, "versao": __version__, "fila": fila.tamanho, "recursos": _recursos()}
+        return {
+            "ok": True,
+            "versao": __version__,
+            "fila": fila.tamanho,
+            "recursos": _recursos(),
+            # Só domínios (não são segredos), para conferir a configuração pelo navegador
+            "configuracao": {
+                "hosts_audio": sorted(config.hosts_permitidos),
+                "hosts_callback": sorted(config.hosts_callback),
+            },
+        }
 
     @app.post("/processar", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(autenticar)])
     def processar_musica(pedido: PedidoProcessamento) -> dict:
         if not _host_permitido(pedido.audio_url, config.hosts_permitidos):
+            log.warning("Pedido recusado: host do áudio %s fora de %s", urlparse(pedido.audio_url).hostname, sorted(config.hosts_permitidos))
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "audio_url precisa ser https e de um host permitido.")
         if pedido.callback_url and not _host_permitido(pedido.callback_url, config.hosts_callback):
+            log.warning("Pedido recusado: host do callback %s fora de %s", urlparse(pedido.callback_url).hostname, sorted(config.hosts_callback))
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "callback_url precisa ser https e de um host permitido.")
         for chave, link in (pedido.uploads or {}).items():
             if not chave.startswith(("faixas/", "arquivos/")) or not _host_permitido(link, config.hosts_permitidos):
