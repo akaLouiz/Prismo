@@ -1,5 +1,7 @@
 # Prompt para o Lovable: ligação com o motor de áudio
 
+> **Desatualizado, não use.** A integração foi feita direto no código do site (repositório akaLouiz/prismo-song-scribe, commit 716ccf4), seguindo `docs/contrato-api.md`. Para ligar o motor, basta configurar os segredos listados abaixo.
+
 Use este prompt quando o motor estiver no ar (servidor com GPU). Antes, adicione nos segredos do projeto no Lovable:
 
 - `ENGINE_URL`: endereço do motor, sem barra no final (ex.: `https://prismo-engine.exemplo.com`)
