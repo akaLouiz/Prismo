@@ -14,8 +14,10 @@ Configuração por variáveis de ambiente (veja docs/contrato-api.md):
     SUPABASE_SERVICE_ROLE_KEY  chave de serviço, para enviar arquivos ao Storage
     PRISMO_BUCKET_FAIXAS       padrão: stems
     PRISMO_BUCKET_RESULTADOS   padrão: results
-    PRISMO_HOSTS_PERMITIDOS    hosts aceitos em audio_url e callback_url, separados por vírgula
+    PRISMO_HOSTS_PERMITIDOS    hosts aceitos em audio_url, separados por vírgula
                                (padrão: o host do SUPABASE_URL)
+    PRISMO_HOSTS_CALLBACK      hosts aceitos em callback_url, separados por vírgula
+                               (padrão: os mesmos de PRISMO_HOSTS_PERMITIDOS); inclua o domínio do site
     PRISMO_MAX_MB              tamanho máximo do arquivo (padrão: 60)
     PRISMO_TRABALHADORES       músicas processadas ao mesmo tempo (padrão: 1, uma GPU)
     PRISMO_DISPOSITIVO         "cuda" ou "cpu" (padrão: automático)
@@ -68,6 +70,7 @@ class Config:
     bucket_faixas: str
     bucket_resultados: str
     hosts_permitidos: set[str]
+    hosts_callback: set[str]
     max_bytes: int
     trabalhadores: int
     dispositivo: str | None
@@ -90,6 +93,7 @@ class Config:
             bucket_faixas=os.environ.get("PRISMO_BUCKET_FAIXAS", "stems"),
             bucket_resultados=os.environ.get("PRISMO_BUCKET_RESULTADOS", "results"),
             hosts_permitidos=hosts,
+            hosts_callback={h.strip().lower() for h in os.environ.get("PRISMO_HOSTS_CALLBACK", "").split(",") if h.strip()} or hosts,
             max_bytes=int(float(os.environ.get("PRISMO_MAX_MB", "60")) * 1024 * 1024),
             trabalhadores=max(1, int(os.environ.get("PRISMO_TRABALHADORES", "1"))),
             dispositivo=os.environ.get("PRISMO_DISPOSITIVO") or None,
@@ -107,6 +111,9 @@ class PedidoProcessamento(BaseModel):
     separar: bool = True
     callback_url: str | None = None
     nome_arquivo: str | None = Field(default=None, max_length=200)
+    # Pasta dentro dos buckets onde os arquivos serão salvos (ex.: "<id do usuário>/<id da música>").
+    # O Storage do site só deixa cada usuário abrir a própria pasta. Padrão: o song_id.
+    pasta_destino: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}(/[A-Za-z0-9_-]{1,64}){0,2}$")
 
 
 @dataclass
@@ -217,7 +224,7 @@ class Fila:
                 ao_progredir=progresso,
             )
             resultado["arquivo"] = pedido.nome_arquivo or resultado["arquivo"]
-            resultado = self._publicar_arquivos(pedido.song_id, resultado)
+            resultado = self._publicar_arquivos(pedido.pasta_destino or pedido.song_id, resultado)
             resultado["tempo_total"] = round(time.perf_counter() - inicio, 1)
             trabalho.status = "concluido"
             trabalho.concluido_em = time.time()
@@ -238,7 +245,7 @@ class Fila:
         finally:
             shutil.rmtree(pasta, ignore_errors=True)
 
-    def _publicar_arquivos(self, song_id: str, resultado: dict) -> dict:
+    def _publicar_arquivos(self, pasta: str, resultado: dict) -> dict:
         """Envia faixas e materiais ao Supabase e troca os caminhos locais pelos do Storage."""
         cfg = self.config
         if not (cfg.supabase_url and cfg.supabase_chave):
@@ -252,11 +259,11 @@ class Fila:
         faixas = {}
         for nome, caminho in resultado.get("faixas", {}).items():
             arquivo = comprimir_para_mp3(Path(caminho))
-            faixas[nome] = supabase.enviar(cfg.bucket_faixas, f"{song_id}/{nome}{arquivo.suffix}", arquivo)
+            faixas[nome] = supabase.enviar(cfg.bucket_faixas, f"{pasta}/{nome}{arquivo.suffix}", arquivo)
         arquivos = {}
         for tipo, caminho in resultado.get("arquivos", {}).items():
             arquivo = Path(caminho)
-            arquivos[tipo] = supabase.enviar(cfg.bucket_resultados, f"{song_id}/{arquivo.name}", arquivo)
+            arquivos[tipo] = supabase.enviar(cfg.bucket_resultados, f"{pasta}/{arquivo.name}", arquivo)
 
         resultado["faixas"] = faixas
         resultado["arquivos"] = arquivos
@@ -369,7 +376,7 @@ def criar_app(config: Config | None = None, fila: Fila | None = None) -> FastAPI
     def processar_musica(pedido: PedidoProcessamento) -> dict:
         if not _host_permitido(pedido.audio_url, config.hosts_permitidos):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "audio_url precisa ser https e de um host permitido.")
-        if pedido.callback_url and not _host_permitido(pedido.callback_url, config.hosts_permitidos):
+        if pedido.callback_url and not _host_permitido(pedido.callback_url, config.hosts_callback):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "callback_url precisa ser https e de um host permitido.")
         trabalho, novo = fila.adicionar(pedido)
         resposta = trabalho.resumo()

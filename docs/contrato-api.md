@@ -21,7 +21,7 @@ Site (Supabase)                                   Motor (servidor com GPU)
 
 - O site chama o motor com `Authorization: Bearer <PRISMO_TOKEN>`.
 - O motor chama o callback com `Authorization: Bearer <PRISMO_CALLBACK_TOKEN>` (se não for definido, é o mesmo `PRISMO_TOKEN`). A edge function `engine-callback` deve recusar com 401 qualquer chamada sem esse token.
-- Por segurança, `audio_url` e `callback_url` precisam ser `https` e do mesmo host do Supabase do projeto (configurável em `PRISMO_HOSTS_PERMITIDOS`).
+- Por segurança, `audio_url` precisa ser `https` e do host do Supabase do projeto (`PRISMO_HOSTS_PERMITIDOS`), e `callback_url` precisa ser `https` e de um host da lista `PRISMO_HOSTS_CALLBACK` (coloque ali o domínio do site).
 
 ## `POST /processar`
 
@@ -35,7 +35,8 @@ Corpo:
   "letra": true,
   "separar": true,
   "callback_url": "https://SEU-PROJETO.supabase.co/functions/v1/engine-callback",
-  "nome_arquivo": "ensaio-domingo.mp3"
+  "nome_arquivo": "ensaio-domingo.mp3",
+  "pasta_destino": "uuid-do-usuario/uuid-da-musica"
 }
 ```
 
@@ -43,6 +44,7 @@ Corpo:
 - `audio_url`: URL assinada do bucket `uploads`, válida por pelo menos 1 hora.
 - `instrumento`: `guitarra`, `violao`, `baixo`, `voz` ou `piano`.
 - `nome_arquivo`: nome original, usado no resultado e para descobrir o formato.
+- `pasta_destino`: pasta, dentro dos buckets, onde faixas e arquivos são salvos. O Storage do site só deixa cada usuário abrir a pasta que começa com o próprio id, então use `<id do usuário>/<id da música>`. Padrão: o `song_id`.
 
 Resposta `202`:
 
@@ -85,8 +87,8 @@ O site deve gravar `etapa` em `songs.etapa_atual`.
 
 O `resultado` segue o formato descrito no prompt do Lovable, com estes detalhes:
 
-- `faixas`: caminho de cada faixa **dentro do bucket `stems`**, ex.: `{ "voz": "uuid/voz.mp3", "guitarra": "uuid/guitarra.mp3", ... }`. Vazio se a separação foi desligada.
-- `arquivos`: caminho de cada material **dentro do bucket `results`**, ex.: `{ "cifra": "uuid/cifra.txt", "tablatura": "uuid/tablatura.txt", "musicxml": "uuid/partitura.musicxml", "midi": "uuid/partitura.mid" }`.
+- `faixas`: caminho de cada faixa **dentro do bucket `stems`**, ex.: `{ "voz": "<pasta_destino>/voz.mp3", "guitarra": "<pasta_destino>/guitarra.mp3", ... }`. Vazio se a separação foi desligada.
+- `arquivos`: caminho de cada material **dentro do bucket `results`**, ex.: `{ "cifra": "<pasta_destino>/cifra.txt", "tablatura": "<pasta_destino>/tablatura.txt", "musicxml": "<pasta_destino>/partitura.musicxml", "midi": "<pasta_destino>/partitura.mid" }`.
 - `buckets`: `{ "faixas": "stems", "arquivos": "results" }`.
 - `tempo_total`: segundos de processamento.
 - `avisos`: lista de avisos para mostrar ao usuário (ex.: letra não reconhecida).

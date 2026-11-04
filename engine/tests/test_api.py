@@ -25,6 +25,7 @@ def config(tmp_path: Path, supabase: bool = True) -> api.Config:
         bucket_faixas="stems",
         bucket_resultados="results",
         hosts_permitidos={HOST},
+        hosts_callback={HOST, "prismo.app"},
         max_bytes=5 * 1024 * 1024,
         trabalhadores=1,
         dispositivo=None,
@@ -206,3 +207,27 @@ def test_carrega_env_sem_sobrescrever(tmp_path, monkeypatch):
     assert os.environ["PRISMO_X_TESTE"] == "do-ambiente"
     assert os.environ["PRISMO_Y_TESTE"] == "aspas"
     assert "VAZIA" not in os.environ
+
+
+def test_salva_na_pasta_do_usuario(tmp_path, ambiente_trabalho):
+    enviados, callbacks = ambiente_trabalho
+    fila = api.Fila(config(tmp_path))
+    pasta = "11111111-aaaa/musica-123"
+    fila._executar_trabalho(api.Trabalho(api.PedidoProcessamento(**pedido(pasta_destino=pasta))))
+    r = callbacks[-1]["resultado"]
+    assert r["arquivos"]["cifra"] == f"{pasta}/cifra.txt"
+    assert all(caminho.startswith(pasta + "/") for _, caminho in enviados)
+
+
+def test_pasta_destino_invalida(cliente):
+    for ruim in ("../outro", "a/b/c/d", "a b", "/raiz"):
+        assert cliente.post("/processar", json=pedido(pasta_destino=ruim), headers=AUTH).status_code == 422
+
+
+def test_callback_no_dominio_do_site(cliente, monkeypatch):
+    monkeypatch.setattr(cliente.app.state.fila, "iniciar", lambda: None)
+    ok = cliente.post("/processar", json=pedido(callback_url="https://prismo.app/api/public/engine-callback"), headers=AUTH)
+    assert ok.status_code == 202
+    # o domínio do site vale só para o callback, não para baixar áudio
+    ruim = cliente.post("/processar", json=pedido(audio_url="https://prismo.app/musica.mp3", song_id="outra"), headers=AUTH)
+    assert ruim.status_code == 400
