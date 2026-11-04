@@ -16,4 +16,4 @@ prismo/
 
 ## Status
 
-Fase atual: **prova técnica** do motor de áudio, para medir a qualidade real da separação e da transcrição antes de construir o produto.
+Fase atual: **prova técnica**. O motor de áudio (`engine/`) já gera cifra, tablatura e partitura; falta validar a qualidade com gravações reais. Veja `engine/README.md` para rodar no seu computador e `docs/decisoes.md` para as decisões do projeto.

@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Resultados e áudios de teste (podem ser grandes e ter direitos autorais)
+saida/
+*.wav
+*.mp3
+*.m4a
+*.mp4
+*.mov
+
+# Sistema
+.DS_Store
+Thumbs.db
+.env
