@@ -89,3 +89,24 @@ def gerar_solo_sobre_acordes(bpm: float = 100, repeticoes: int = 2, volume_solo:
     mistura += baixo
     escala_max = np.abs(mistura).max()
     return (mistura / escala_max).astype(np.float32), (baixo / escala_max).astype(np.float32), gabarito
+
+
+def gerar_levada(colcheias_atacadas, bpm: float = 100, compassos: int = 8):
+    """Violão tocando sempre a mesma levada: acorde de Em palhetado nas colcheias indicadas
+    (0 a 7 dentro do compasso). Retorna (sinal, batidas_reais)."""
+    batida = 60.0 / bpm
+    total = compassos * 4 * batida + 1.0
+    sinal = np.zeros(int(total * SR))
+    acorde = [52, 55, 59, 64, 67]
+    inicio = 0.5
+    for c in range(compassos):
+        for k in colcheias_atacadas:
+            t = inicio + c * 4 * batida + k * batida / 2
+            ini = int(t * SR)
+            for i, m in enumerate(acorde):
+                n = _nota(m, batida, decaimento=5.0) * 0.2
+                n *= np.minimum(1.0, np.linspace(8.0, 0.0, len(n)))  # a nota morre aos poucos, sem clique no fim
+                a = ini + i * 60
+                sinal[a:a + len(n)] += n[: len(sinal) - a]
+    batidas = [inicio + i * batida for i in range(compassos * 4)]
+    return (sinal / np.abs(sinal).max()).astype(np.float32), batidas

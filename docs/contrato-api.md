@@ -96,6 +96,8 @@ O `resultado` segue o formato descrito no prompt do Lovable, com estes detalhes:
 - `arquivos`: caminho de cada material **dentro do bucket `results`**, ex.: `{ "cifra": "<pasta_destino>/cifra.txt", "tablatura": "<pasta_destino>/tablatura.txt", "musicxml": "<pasta_destino>/partitura.musicxml", "midi": "<pasta_destino>/partitura.mid" }`.
 - `buckets`: `{ "faixas": "stems", "arquivos": "results" }`.
 - `tempo_total`: segundos de processamento.
+- `levada`: a batida que o violão/guitarra toca, detectada na faixa isolada: `{ "padrao": [8 x "baixo" | "cima" | "pausa"], "confianca": 0..1, "compassos": n }`, ou `null` quando não dá para dizer (sem separação, instrumento que não é violão/guitarra, trecho sem levada regular).
+- `idioma_letra`: idioma em que a letra foi cantada (código ISO, ex.: `"en"`), detectado pelo motor; a letra vem nesse idioma, sem tradução.
 - `avisos`: lista de avisos para mostrar ao usuário (ex.: letra não reconhecida).
 
 O site deve: salvar `resultado` em `songs.resultado`, preencher `bpm`, `tom` (= `resultado.tom.cifra`) e `duracao`, inserir uma linha em `stems` para cada item de `faixas` e mudar o status para `pronto`.

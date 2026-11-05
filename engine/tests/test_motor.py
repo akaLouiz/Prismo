@@ -191,3 +191,43 @@ def test_capotraste_nunca_alto_no_braco():
     nomes = [(1, "min7"), (9, "maj7"), (4, "maj"), (11, "min"), (9, "min")]  # C#m7 A7M E Bm Am
     acordes = [Acorde(i, i + 1, r, q) for i, (r, q) in enumerate(nomes)]
     assert sugerir_capotraste(acordes)["casa"] <= 5
+
+
+# ---------------------------------------------------------------- levada
+
+@pytest.mark.parametrize("nome,colcheias,esperado", [
+    ("pop/rock", [0, 1, 3, 4, 5, 6], ["baixo", "cima", "pausa", "cima", "baixo", "cima", "baixo", "pausa"]),
+    ("semínimas", [0, 2, 4, 6], ["baixo", "pausa", "baixo", "pausa", "baixo", "pausa", "baixo", "pausa"]),
+    ("reggae", [1, 3, 5, 7], ["pausa", "cima", "pausa", "cima", "pausa", "cima", "pausa", "cima"]),
+])
+def test_detecta_a_levada_tocada(nome, colcheias, esperado):
+    from sintetico import gerar_levada
+    from prismo_engine.levada import detectar_levada
+
+    sinal, batidas = gerar_levada(colcheias)
+    levada = detectar_levada(sinal, SR, batidas)
+    assert levada is not None, nome
+    assert levada["padrao"] == esperado, nome
+    assert levada["confianca"] > 0.8
+
+
+def test_levada_com_batidas_detectadas_pelo_motor():
+    """O mesmo, usando as batidas que o próprio motor detecta (como no uso real)."""
+    from sintetico import gerar_levada
+    from prismo_engine.levada import detectar_levada
+
+    sinal, _ = gerar_levada([0, 2, 4, 6], bpm=100)
+    batidas = analisar(sinal, SR).batidas
+    levada = detectar_levada(sinal, SR, batidas)
+    assert levada is not None
+    atacadas = [i for i, s in enumerate(levada["padrao"]) if s != "pausa"]
+    # Batidas detectadas podem começar meio compasso deslocadas; o que importa é atacar 1 a cada 2 colcheias
+    assert atacadas in ([0, 2, 4, 6], [1, 3, 5, 7])
+
+
+def test_sem_levada_em_silencio():
+    from prismo_engine.levada import detectar_levada
+    import numpy as np
+
+    assert detectar_levada(np.zeros(SR * 10, dtype=np.float32), SR, [i * 0.5 for i in range(20)]) is None
+    assert detectar_levada(np.ones(SR, dtype=np.float32), SR, [0.0, 0.5]) is None
