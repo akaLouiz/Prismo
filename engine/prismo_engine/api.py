@@ -254,7 +254,7 @@ class Fila:
             trabalho.concluido_em = time.time()
             self._chamar_callback(pedido, {"tipo": "concluido", "song_id": pedido.song_id, "resultado": resultado},
                                   tentativas=5)
-            log.info("Concluído %s em %.1fs", pedido.song_id, resultado["tempo_total"])
+            log.info("Concluído %s em %.1fs; por etapa: %s", pedido.song_id, resultado["tempo_total"], resultado.get("tempo_por_etapa"))
         except Exception as erro:
             mensagem = str(erro) if isinstance(erro, ErroUsuario) else (
                 "Não foi possível processar esta música. Tente outro arquivo ou envie novamente em alguns minutos."
