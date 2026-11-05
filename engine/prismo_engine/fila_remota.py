@@ -14,8 +14,9 @@ from collections.abc import Callable, MutableMapping
 from .api import Config, Fila, PedidoProcessamento, Trabalho
 
 # Depois desse tempo sem notícias, uma música "processando" é considerada perdida
-# e pode ser enviada de novo (ex.: a máquina caiu no meio).
-PRAZO_TRABALHO = 30 * 60
+# e pode ser enviada de novo (ex.: a máquina caiu no meio ou nunca conseguiu GPU).
+# É o mesmo prazo que o site usa para oferecer "Tentar de novo".
+PRAZO_TRABALHO = 15 * 60
 
 
 def _para_trabalho(dados: dict) -> Trabalho:

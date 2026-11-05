@@ -69,8 +69,10 @@ estado = modal.Dict.from_name(f"{NOME}-estado", create_if_missing=True)
 # Sem reserva, o Modal dá só uma fração de núcleo, e uma música de 18 s levava quase 3 minutos.
 # scaledown_window: a máquina fica ligada 2 minutos depois de cada música, então músicas
 # enviadas em sequência não esperam a GPU ligar de novo.
+# gpu: em ordem de preferência. Se não houver L4 livre, o Modal usa uma A10G e, em último caso,
+# uma T4 (mais lenta), em vez de deixar a música esperando sem prazo.
 @app.function(
-    gpu="L4",
+    gpu=["L4", "A10G", "T4"],
     cpu=4.0,
     memory=16 * 1024,
     timeout=20 * 60,
