@@ -93,25 +93,28 @@ _FORMATOS_ABERTOS = {
 }
 
 
-def sugerir_capotraste(acordes: list[Acorde], max_casa: int = 7) -> dict:
+def sugerir_capotraste(acordes: list[Acorde], max_casa: int = 5, ganho_minimo: float = 0.2) -> dict:
     """Escolhe a casa do capotraste que deixa mais acordes em formato aberto.
 
-    Com o capo na casa N, toca-se o formato do acorde N semitons abaixo.
+    Com o capo na casa N, toca-se o formato do acorde N semitons abaixo. Capo alto no
+    braço não é prático: nunca passa de `max_casa`, cada casa custa um pouco, e só há
+    sugestão quando o capo deixa pelo menos 20% mais acordes abertos do que sem ele.
+    A mesma regra está no site (suggestCapo em src/lib/music/index.ts).
     Retorna a casa sugerida e quantos acordes (ponderados pela duração) ficam abertos.
     """
     validos = [a for a in acordes if a.raiz is not None and a.qualidade != "N"]
     if not validos:
         return {"casa": 0, "aproveitamento": 0.0}
     total = sum(a.fim - a.inicio for a in validos) or 1.0
-    melhor = (0, -1.0)
-    for casa in range(0, max_casa + 1):
-        abertos = sum(
-            a.fim - a.inicio
-            for a in validos
-            if ((a.raiz - casa) % 12, a.qualidade) in _FORMATOS_ABERTOS
-        )
-        taxa = abertos / total
-        # Só troca de casa se melhorar de verdade (evita capo desnecessário)
-        if taxa > melhor[1] + 0.05:
-            melhor = (casa, taxa)
+
+    def taxa(casa: int) -> float:
+        abertos = sum(a.fim - a.inicio for a in validos if ((a.raiz - casa) % 12, a.qualidade) in _FORMATOS_ABERTOS)
+        return abertos / total
+
+    sem_capo = taxa(0)
+    melhor = (0, sem_capo)
+    for casa in range(1, max_casa + 1):
+        t = taxa(casa)
+        if t - sem_capo >= ganho_minimo and t - 0.02 * casa > melhor[1] - 0.02 * melhor[0]:
+            melhor = (casa, t)
     return {"casa": melhor[0], "aproveitamento": round(melhor[1], 3)}

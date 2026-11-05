@@ -162,3 +162,32 @@ def test_cifra_ignora_silencio_no_fim():
     acordes = [Acorde(0, compasso, 4, "min"), Acorde(compasso, 3 * compasso, None, "N")]
     texto = gerar_cifra(acordes, EM_MENOR, 120)
     assert "%" not in texto
+
+
+# ---------------------------------------------------------------- solos e dedilhados
+
+def test_baixo_isolado_mantem_acordes_sob_solo():
+    """Solo alto por cima de acordes: com a faixa do baixo, os acordes continuam certos."""
+    from sintetico import gerar_solo_sobre_acordes
+    from prismo_engine.cifra import limpar_acordes
+
+    def acertos(analise, gabarito):
+        acs = limpar_acordes(analise.acordes)
+        ok = 0
+        for nome, ini, fim in gabarito:
+            meio = (ini + fim) / 2
+            d = next((a for a in acs if a.inicio <= meio < a.fim), None)
+            ok += d is not None and nome_acorde(d) == nome
+        return ok / len(gabarito)
+
+    mix, baixo, gab = gerar_solo_sobre_acordes(volume_solo=0.8)
+    com_baixo = acertos(analisar(mix, SR, sinal_baixo=baixo), gab)
+    sem_baixo = acertos(analisar(mix, SR), gab)
+    assert com_baixo >= 0.75
+    assert com_baixo > sem_baixo
+
+
+def test_capotraste_nunca_alto_no_braco():
+    nomes = [(1, "min7"), (9, "maj7"), (4, "maj"), (11, "min"), (9, "min")]  # C#m7 A7M E Bm Am
+    acordes = [Acorde(i, i + 1, r, q) for i, (r, q) in enumerate(nomes)]
+    assert sugerir_capotraste(acordes)["casa"] <= 5

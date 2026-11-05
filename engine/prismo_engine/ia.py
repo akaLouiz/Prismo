@@ -133,23 +133,29 @@ def remover_harmonicos(notas: list[Nota], janela: float = 0.06) -> list[Nota]:
     return mantidas
 
 
-def transcrever_letra(caminho_voz: str, idioma: str | None = "pt", modelo: str = "small") -> list[Palavra]:
-    """Voz isolada -> palavras com tempo, com o Whisper (faster-whisper)."""
+def transcrever_letra(caminho_voz: str, idioma: str | None = None, modelo: str = "small") -> tuple[list[Palavra], str | None]:
+    """Voz isolada -> (palavras com tempo, idioma detectado), com o Whisper (faster-whisper).
+
+    Sem `idioma`, o Whisper detecta o idioma da música e transcreve nele, sem traduzir.
+    Forçar um idioma diferente do cantado faz o modelo "traduzir" e inventar frases.
+    """
     try:
         from faster_whisper import WhisperModel
     except ImportError as erro:
         raise DependenciaAusente("Instale a letra com: pip install -e \".[letra]\"") from erro
 
-    def reconhecer(device: str, compute_type: str) -> list[Palavra]:
+    def reconhecer(device: str, compute_type: str) -> tuple[list[Palavra], str | None]:
         whisper = WhisperModel(modelo, device=device, compute_type=compute_type)
-        segmentos, _ = whisper.transcribe(str(caminho_voz), language=idioma, word_timestamps=True, vad_filter=True)
+        segmentos, info = whisper.transcribe(
+            str(caminho_voz), language=idioma, task="transcribe", word_timestamps=True, vad_filter=True
+        )
         palavras = []
         for seg in segmentos:
             for w in seg.words or []:
                 texto = w.word.strip()
                 if texto:
                     palavras.append(Palavra(float(w.start), float(w.end), texto))
-        return palavras
+        return palavras, getattr(info, "language", None) or idioma
 
     try:
         return reconhecer("auto", "auto")

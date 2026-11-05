@@ -98,17 +98,19 @@ def processar(
         sinais = [carregar_audio(str(p))[0] for p in presentes]
         n = min(len(s) for s in sinais)
         harmonia = np.sum([s[:n] for s in sinais], axis=0)
-    analise = analisar(mistura, sr, sinal_harmonia=harmonia)
+    baixo = carregar_audio(str(faixas["baixo"]))[0] if "baixo" in faixas else None
+    analise = analisar(mistura, sr, sinal_harmonia=harmonia, sinal_baixo=baixo)
     analise.acordes = limpar_acordes(analise.acordes)
     marcar("analise")
 
     # 3. Letra
     palavras: list[Palavra] = []
+    idioma_letra: str | None = None
     if letra and "voz" in faixas:
         avisar("letra")
         _log("Reconhecendo a letra na voz isolada...")
         try:
-            palavras = ia.transcrever_letra(str(faixas["voz"]))
+            palavras, idioma_letra = ia.transcrever_letra(str(faixas["voz"]))
         except ia.DependenciaAusente as e:
             avisos.append(f"Letra não reconhecida: {e}")
         marcar("letra")
@@ -173,6 +175,7 @@ def processar(
         "batidas": analise.batidas,
         "faixas": {nome: str(p) for nome, p in faixas.items()},
         "letra": [asdict(p) for p in palavras],
+        "idioma_letra": idioma_letra,
         "notas": [asdict(n) for n in notas],
         "tablatura": [
             {"inicio": round(e.inicio, 3), "fim": round(e.fim, 3), "posicoes": [asdict(p) for p in e.posicoes]}

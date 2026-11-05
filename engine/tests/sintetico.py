@@ -46,3 +46,46 @@ def gerar_progressao(bpm: float = 92, repeticoes: int = 2) -> tuple[np.ndarray, 
             t += compasso
     sinal /= np.abs(sinal).max()
     return sinal.astype(np.float32), gabarito
+
+
+def _nota(midi: float, dur: float, sr: int = SR, decaimento: float = 3.0) -> np.ndarray:
+    t = np.arange(int(dur * sr)) / sr
+    f = 440 * 2 ** ((midi - 69) / 12)
+    onda = sum((0.5 ** k) * np.sin(2 * np.pi * f * (k + 1) * t) for k in range(6))
+    ataque = np.minimum(1.0, t / 0.01)
+    return onda * ataque * np.exp(-decaimento * t)
+
+
+def gerar_solo_sobre_acordes(bpm: float = 100, repeticoes: int = 2, volume_solo: float = 0.5, semente: int = 7):
+    """Acordes tocados uma vez por compasso (sustentados), baixo na fundamental
+    e um solo em colcheias por cima, com notas da escala de Mi menor, como num solo ou dedilhado.
+
+    Retorna (mistura, baixo_isolado, gabarito).
+    """
+    rng = np.random.default_rng(semente)
+    batida = 60.0 / bpm
+    compasso = 4 * batida
+    total = len(PROGRESSAO_EM) * repeticoes * compasso + 1.0
+    mistura = np.zeros(int(total * SR))
+    baixo = np.zeros_like(mistura)
+    escala = [64, 66, 67, 69, 71, 74, 76, 78, 79, 81]  # Mi menor, região aguda
+    gabarito = []
+    t = 0.5
+    for _ in range(repeticoes):
+        for nome, midis in PROGRESSAO_EM:
+            gabarito.append((nome, t, t + compasso))
+            ini = int(t * SR)
+            for m in midis[:4]:  # acorde soando o compasso inteiro, baixinho
+                n = _nota(m, compasso, decaimento=0.6) * 0.10
+                mistura[ini:ini + len(n)] += n[: len(mistura) - ini]
+            b = _nota(midis[0] - 12, compasso, decaimento=0.8) * 0.35
+            baixo[ini:ini + len(b)] += b[: len(baixo) - ini]
+            for k in range(8):  # solo em colcheias, mais alto que o acorde
+                m = int(rng.choice(escala))
+                n = _nota(m, batida / 2 * 0.95, decaimento=4.0) * volume_solo
+                a = int((t + k * batida / 2) * SR)
+                mistura[a:a + len(n)] += n[: len(mistura) - a]
+            t += compasso
+    mistura += baixo
+    escala_max = np.abs(mistura).max()
+    return (mistura / escala_max).astype(np.float32), (baixo / escala_max).astype(np.float32), gabarito
