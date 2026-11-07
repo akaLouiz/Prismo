@@ -88,20 +88,38 @@ def _cifra_por_compassos(
     bpm: float,
     inicio: float | None = None,
     compassos_por_linha: int = 4,
+    batidas: list[float] | None = None,
+    tempo_forte: int = 0,
 ) -> list[str]:
     duracao_compasso = 4 * 60.0 / bpm
     tocados = [a for a in acordes if a.raiz is not None]
     if not tocados:
         return []
     fim = tocados[-1].fim
+    # Início de cada compasso: de 4 em 4 batidas reais a partir do "1" (o andamento
+    # de uma gravação varia um pouco, e uma grade fixa vai se afastando da música).
+    # Sem batidas, grade fixa a partir de `inicio` (ou do primeiro acorde).
+    if batidas is not None and len(batidas) > tempo_forte + 4:
+        inicios = list(batidas[tempo_forte::4])
+        if tempo_forte > 0:
+            inicios.insert(0, batidas[0])  # anacruse: os tempos antes do primeiro "1"
+        while inicios[-1] + duracao_compasso < fim:
+            inicios.append(inicios[-1] + duracao_compasso)
+    else:
+        t = inicio if inicio is not None else tocados[0].inicio
+        inicios = []
+        while t < fim - 0.05:
+            inicios.append(t)
+            t += duracao_compasso
     compassos = []
-    # A grade de compassos começa na primeira batida (ou no primeiro acorde)
-    t = inicio if inicio is not None else tocados[0].inicio
-    minimo = 0.3 * duracao_compasso  # acorde precisa ocupar ~1 tempo do compasso
-    while t < fim - 0.05:
+    for k, t in enumerate(inicios):
+        if t >= fim - 0.05:
+            break
+        t_fim = inicios[k + 1] if k + 1 < len(inicios) else t + duracao_compasso
+        minimo = 0.3 * (t_fim - t)  # acorde precisa ocupar ~1 tempo do compasso
         no_compasso = [
             a for a in tocados
-            if min(a.fim, t + duracao_compasso) - max(a.inicio, t) >= minimo
+            if min(a.fim, t_fim) - max(a.inicio, t) >= minimo
         ]
         nomes = []
         for a in no_compasso:
@@ -109,7 +127,6 @@ def _cifra_por_compassos(
             if not nomes or nomes[-1] != n:
                 nomes.append(n)
         compassos.append("  ".join(nomes) if nomes else "%")
-        t += duracao_compasso
     while compassos and compassos[-1] == "%":  # silêncio no fim da gravação
         compassos.pop()
     largura = max(len(c) for c in compassos) + 2
@@ -127,6 +144,8 @@ def gerar_cifra(
     palavras: list[Palavra] | None = None,
     titulo: str = "",
     inicio_compassos: float | None = None,
+    batidas: list[float] | None = None,
+    tempo_forte: int = 0,
 ) -> str:
     acordes = limpar_acordes(acordes)
     capo = sugerir_capotraste(acordes)
@@ -147,6 +166,6 @@ def gerar_cifra(
     corpo = (
         _cifra_com_letra(acordes, palavras, tom)
         if palavras
-        else _cifra_por_compassos(acordes, tom, bpm, inicio_compassos)
+        else _cifra_por_compassos(acordes, tom, bpm, inicio_compassos, batidas=batidas, tempo_forte=tempo_forte)
     )
     return "\n".join(cabecalho) + "\n\n" + "\n".join(corpo).rstrip() + "\n"

@@ -16,6 +16,7 @@ import numpy as np
 import librosa
 
 from .models import Acorde, Analise, Tonalidade
+from . import ritmo
 
 TAXA = 22050
 SALTO = 512
@@ -201,29 +202,43 @@ def analisar(
     sr: int = TAXA,
     sinal_harmonia: np.ndarray | None = None,
     sinal_baixo: np.ndarray | None = None,
+    sinal_bateria: np.ndarray | None = None,
 ) -> Analise:
     """Análise completa de uma faixa.
 
     `sinal` é a mistura (bom para achar o pulso). `sinal_harmonia`, se vier, é
     a soma das faixas harmônicas já separadas (sem voz e bateria), que dá
-    acordes e tonalidade bem mais limpos.
+    acordes e tonalidade bem mais limpos. `sinal_baixo` e `sinal_bateria`
+    (faixas isoladas) ajudam a achar o "1" do compasso.
     """
     duracao = float(len(sinal) / sr)
     harmonico, percussivo = librosa.effects.hpss(sinal)
     if sinal_harmonia is not None:
         harmonico = sinal_harmonia[: len(sinal)]
+    pulso = percussivo if np.abs(percussivo).sum() > 0 else sinal
 
-    tempo, quadros_batida = librosa.beat.beat_track(y=percussivo if np.abs(percussivo).sum() > 0 else sinal, sr=sr, hop_length=SALTO)
-    bpm = float(np.atleast_1d(tempo)[0])
+    # Batidas: rastreador do librosa + correções de andamento e de bordas (ver ritmo.py)
+    _, quadros_batida = librosa.beat.beat_track(y=pulso, sr=sr, hop_length=SALTO)
     tempos_batidas = librosa.frames_to_time(quadros_batida, sr=sr, hop_length=SALTO)
+    fonte_grave = sinal_bateria if sinal_bateria is not None and np.abs(sinal_bateria).sum() > 0 else pulso
+    grave, t_grave = ritmo.envelope_de_ataques(fonte_grave[: len(sinal)], sr, fmax=150.0)
+    # Dobrar o andamento só com evidência da bateria: graves (bumbo) e, com a bateria
+    # isolada, todas as frequências. Na mistura, um solo em colcheias enganaria o teste.
+    evidencias = [(grave, t_grave)]
+    if sinal_bateria is not None and np.abs(sinal_bateria).sum() > 0:
+        evidencias.append(ritmo.envelope_de_ataques(sinal_bateria[: len(sinal)], sr))
+    tempos_batidas = ritmo.corrigir_andamento(tempos_batidas, evidencias)
+    tempos_batidas = ritmo.completar_bordas(tempos_batidas, sinal, sr)
+    bpm = ritmo.bpm_das_batidas(tempos_batidas, 120.0)
 
     croma = librosa.feature.chroma_cqt(y=harmonico, sr=sr, hop_length=SALTO)
     tonalidade = detectar_tonalidade(croma)
 
+    quadros_batida = librosa.time_to_frames(tempos_batidas, sr=sr, hop_length=SALTO)
     if len(quadros_batida) < 2:
         # Sem pulso claro (ex.: rubato): usa janelas fixas de meio segundo
         quadros_batida = np.arange(0, croma.shape[1], int(0.5 * sr / SALTO))
-        tempos_batidas = librosa.frames_to_time(quadros_batida, sr=sr, hop_length=SALTO)
+    quadros_batida = np.unique(np.clip(quadros_batida, 0, croma.shape[1] - 1))
     limites = np.concatenate([[0], quadros_batida]) if quadros_batida[0] > 0 else quadros_batida
     croma_batidas = librosa.util.sync(croma, limites, aggregate=np.median)
     tempos = librosa.frames_to_time(limites, sr=sr, hop_length=SALTO)
@@ -236,6 +251,14 @@ def analisar(
         croma_baixo = librosa.util.sync(b, limites, aggregate=np.median)[:, : croma_batidas.shape[1]]
     acordes = detectar_acordes(croma_batidas, tempos, duracao, croma_baixo=croma_baixo)
     tonalidade = refinar_tonalidade(tonalidade, acordes)
+
+    # O "1" do compasso: bumbo (graves da bateria isolada, ou da mistura), baixo e trocas de acorde
+    env_baixo = None
+    if sinal_baixo is not None and np.abs(sinal_baixo).sum() > 0:
+        env_baixo, _ = ritmo.envelope_de_ataques(sinal_baixo[: len(sinal)], sr)
+        env_baixo = env_baixo[: len(t_grave)]
+    trocas = [a.inicio for a in acordes[1:] if a.raiz is not None]
+    tempo_forte = ritmo.detectar_tempo_forte(tempos_batidas, grave, t_grave, trocas, env_baixo)
     return Analise(
         duracao=round(duracao, 3),
         bpm=round(bpm, 1),
@@ -243,6 +266,7 @@ def analisar(
         tonalidade=tonalidade,
         batidas=[round(float(t), 3) for t in tempos_batidas],
         acordes=acordes,
+        tempo_forte=tempo_forte,
     )
 
 

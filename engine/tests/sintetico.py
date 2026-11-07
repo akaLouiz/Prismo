@@ -110,3 +110,51 @@ def gerar_levada(colcheias_atacadas, bpm: float = 100, compassos: int = 8):
                 sinal[a:a + len(n)] += n[: len(sinal) - a]
     batidas = [inicio + i * batida for i in range(compassos * 4)]
     return (sinal / np.abs(sinal).max()).astype(np.float32), batidas
+
+
+def gerar_musica_com_bateria(colcheias_atacadas, bpm: float = 100, compassos: int = 16, anacruse: int = 0):
+    """Banda simples: violão na levada indicada trocando de acorde a cada compasso
+    (Em, C, G, D), bumbo no 1 e no 3, caixa no 2 e no 4.
+
+    Com `anacruse` = n, a gravação começa n tempos antes do primeiro "1" (como uma
+    música que entra no fim de um compasso). Retorna (mistura, violao, bateria, uns),
+    em que `uns` são os tempos reais de cada "1" do compasso.
+    """
+    rng = np.random.default_rng(3)
+    batida = 60.0 / bpm
+    inicio = 0.5 + anacruse * batida  # tempo do primeiro "1"
+    total = inicio + compassos * 4 * batida + 1.0
+    violao = np.zeros(int(total * SR))
+    bateria = np.zeros_like(violao)
+    uns = []
+    for c in range(-1 if anacruse else 0, compassos):
+        t_compasso = inicio + c * 4 * batida
+        if c >= 0:
+            uns.append(t_compasso)
+        _, acorde = PROGRESSAO_EM[c % len(PROGRESSAO_EM)]
+        for k in colcheias_atacadas:
+            t = t_compasso + k * batida / 2
+            if t < 0.5 - 1e-6:
+                continue  # antes da gravação começar
+            ini = int(t * SR)
+            for i, m in enumerate(acorde):
+                n = _nota(m, batida, decaimento=5.0) * 0.2
+                n *= np.minimum(1.0, np.linspace(8.0, 0.0, len(n)))
+                a = ini + i * 60
+                violao[a:a + len(n)] += n[: len(violao) - a]
+        for tempo in range(4):
+            t = t_compasso + tempo * batida
+            if t < 0.5 - 1e-6:
+                continue
+            ini = int(t * SR)
+            if tempo % 2 == 0:
+                k = _bumbo() * 0.9
+            else:
+                dur = int(0.08 * SR)
+                k = rng.normal(0, 0.35, dur) * np.exp(-np.arange(dur) / SR * 40)
+            bateria[ini:ini + len(k)] += k[: len(bateria) - ini]
+    escala = max(np.abs(violao).max(), np.abs(bateria).max())
+    violao, bateria = violao / escala, bateria / escala
+    mistura = 0.6 * violao + bateria
+    mistura /= np.abs(mistura).max()
+    return mistura.astype(np.float32), violao.astype(np.float32), bateria.astype(np.float32), uns

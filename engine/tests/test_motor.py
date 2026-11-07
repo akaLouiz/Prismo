@@ -231,3 +231,69 @@ def test_sem_levada_em_silencio():
 
     assert detectar_levada(np.zeros(SR * 10, dtype=np.float32), SR, [i * 0.5 for i in range(20)]) is None
     assert detectar_levada(np.ones(SR, dtype=np.float32), SR, [0.0, 0.5]) is None
+
+
+# ---------------------------------------------------------------- ritmo: andamento, "1" e grade real
+
+@pytest.mark.parametrize("bpm", [80, 100, 128, 140])
+@pytest.mark.parametrize("anacruse", [0, 1, 3])
+def test_acha_andamento_e_o_um_do_compasso(bpm, anacruse):
+    """Música com bateria: o motor não pode pegar metade do andamento (erro comum
+    acima de ~110 BPM, preso só na caixa) nem achar o "1" no tempo errado."""
+    from sintetico import gerar_musica_com_bateria
+    from prismo_engine.levada import detectar_levada
+
+    mistura, violao, _, uns = gerar_musica_com_bateria([0, 1, 3, 4, 5, 6], bpm=bpm, anacruse=anacruse)
+    a = analisar(mistura, SR)
+    assert abs(a.bpm - bpm) < 1.5
+    um = a.batidas[a.tempo_forte]
+    assert min(abs(um - u) for u in uns) < 0.06, (um, uns[:2])
+    # Os tempos antes do primeiro "1" (anacruse) não podem sumir
+    assert a.batidas[0] < uns[0] - (anacruse - 0.5) * 60 / bpm if anacruse else True
+    levada = detectar_levada(violao, SR, a.batidas, a.tempo_forte)
+    assert levada["padrao"] == ["baixo", "cima", "pausa", "cima", "baixo", "cima", "baixo", "pausa"]
+
+
+def test_um_do_compasso_com_bateria_isolada():
+    from sintetico import gerar_musica_com_bateria
+
+    mistura, _, bateria, uns = gerar_musica_com_bateria([0, 2, 4, 6], bpm=92, anacruse=2)
+    a = analisar(mistura, SR, sinal_bateria=bateria)
+    assert min(abs(a.batidas[a.tempo_forte] - u) for u in uns) < 0.06
+
+
+def test_posicao_em_tempos_segue_as_batidas_reais():
+    from prismo_engine.ritmo import posicao_em_tempos
+
+    batidas = [1.0, 1.5, 2.1, 2.6]  # andamento oscilando, como numa gravação ao vivo
+    assert posicao_em_tempos(1.0, batidas) == 0
+    assert posicao_em_tempos(1.8, batidas) == pytest.approx(1.5)
+    assert posicao_em_tempos(0.75, batidas) == pytest.approx(-0.5)  # antes: intervalo da borda
+    assert posicao_em_tempos(3.1, batidas) == pytest.approx(4.0)
+
+
+def test_tablatura_e_partitura_seguem_as_batidas_e_o_um():
+    """Andamento que acelera: com grade fixa as notas iam escorregando de tempo."""
+    from prismo_engine.partitura import criar_partitura
+
+    batidas, t = [], 0.5
+    for i in range(24):
+        batidas.append(t)
+        t += 0.6 - i * 0.01  # 100 BPM acelerando
+    # Anacruse de 1 tempo: o "1" é a batida de índice 1. Uma nota em cada tempo forte.
+    notas = [Nota(batidas[i], batidas[i] + 0.2, 64) for i in range(1, 24, 4)]
+    tab = renderizar_tablatura(gerar_tablatura(notas), 100, batidas=batidas, tempo_forte=1)
+    compassos = [c for linha in tab.split("\n\n") for c in linha.split("\n")[0].split("|")[1:-1]]
+    # 1º compasso: anacruse (3 tempos de pausa e o 4º tempo vazio); depois, nota no 1 de cada compasso
+    assert all(c.startswith("0") for c in compassos[1:6]), compassos
+    partitura = criar_partitura(notas, 100, EM_MENOR, "guitarra", batidas=batidas, tempo_forte=1)
+    inicios = [float(n.getOffsetInHierarchy(partitura)) for n in partitura.recurse().notes]
+    assert inicios[:6] == [4.0, 8.0, 12.0, 16.0, 20.0, 24.0]
+
+
+def test_cifra_por_compassos_segue_as_batidas():
+    batidas = [0.5 + 0.5 * i for i in range(17)]
+    acordes = [Acorde(1.0, 3.0, 4, "min"), Acorde(3.0, 5.0, 0, "maj"), Acorde(5.0, 9.0, 7, "maj")]
+    cifra = gerar_cifra(acordes, EM_MENOR, 120, batidas=batidas, tempo_forte=1)
+    linha = [l for l in cifra.splitlines() if l.startswith("|")][0]
+    assert [c.strip() for c in linha.strip("|").split("|")][:4] == ["%", "Em", "C", "G"]

@@ -129,7 +129,7 @@ def test_fluxo_completo(tmp_path, ambiente_trabalho):
     assert final["tipo"] == "concluido" and final["song_id"] == "musica-123"
     r = final["resultado"]
     assert r["tom"]["cifra"] == "Em" and abs(r["bpm"] - 92) < 4
-    assert [a["nome"] for a in r["acordes"]][:4] == ["Em", "C", "G", "D"]
+    assert [a["nome"] for a in r["acordes"] if a["nome"] != "N.C."][:4] == ["Em", "C", "G", "D"]
     assert r["arquivo"] == "ensaio.wav"
     assert r["arquivos"]["cifra"] == "musica-123/cifra.txt"
     assert r["buckets"] == {"faixas": "stems", "arquivos": "results"}

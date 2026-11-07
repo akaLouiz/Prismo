@@ -100,13 +100,14 @@ def processar(
         n = min(len(s) for s in sinais)
         harmonia = np.sum([s[:n] for s in sinais], axis=0)
     baixo = carregar_audio(str(faixas["baixo"]))[0] if "baixo" in faixas else None
-    analise = analisar(mistura, sr, sinal_harmonia=harmonia, sinal_baixo=baixo)
+    bateria = carregar_audio(str(faixas["bateria"]))[0] if "bateria" in faixas else None
+    analise = analisar(mistura, sr, sinal_harmonia=harmonia, sinal_baixo=baixo, sinal_bateria=bateria)
     analise.acordes = limpar_acordes(analise.acordes)
     # Levada: só com a faixa de violão/guitarra isolada (na mistura, a bateria confundiria)
     levada = None
     if "guitarra" in faixas and instrumento in ("guitarra", "violao"):
         try:
-            levada = detectar_levada(carregar_audio(str(faixas["guitarra"]))[0], sr, analise.batidas)
+            levada = detectar_levada(carregar_audio(str(faixas["guitarra"]))[0], sr, analise.batidas, analise.tempo_forte)
         except Exception as e:  # a levada é um extra: nunca derruba o processamento
             avisos.append(f"Levada não detectada: {e}")
     marcar("analise")
@@ -140,10 +141,9 @@ def processar(
     # 5. Materiais
     avisar("materiais")
     arquivos: dict[str, str] = {}
-    primeira_batida = analise.batidas[0] if analise.batidas else None
     cifra = gerar_cifra(
         analise.acordes, analise.tonalidade, analise.bpm, palavras or None,
-        titulo=origem.stem, inicio_compassos=primeira_batida,
+        titulo=origem.stem, batidas=analise.batidas, tempo_forte=analise.tempo_forte,
     )
     (saida / "cifra.txt").write_text(cifra, encoding="utf-8")
     arquivos["cifra"] = str(saida / "cifra.txt")
@@ -151,15 +151,19 @@ def processar(
     eventos_tab = []
     if notas and instrumento in COM_TABLATURA:
         eventos_tab = gerar_tablatura(notas, instrumento)
-        inicio = analise.batidas[0] if analise.batidas else 0.0
-        tab = renderizar_tablatura(eventos_tab, analise.bpm, instrumento, inicio_musica=inicio)
+        tab = renderizar_tablatura(
+            eventos_tab, analise.bpm, instrumento, batidas=analise.batidas, tempo_forte=analise.tempo_forte,
+        )
         (saida / "tablatura.txt").write_text(tab, encoding="utf-8")
         arquivos["tablatura"] = str(saida / "tablatura.txt")
 
     if notas:
         from .partitura import criar_partitura, exportar
 
-        partitura = criar_partitura(notas, analise.bpm, analise.tonalidade, instrumento, titulo=origem.stem)
+        partitura = criar_partitura(
+            notas, analise.bpm, analise.tonalidade, instrumento, titulo=origem.stem,
+            batidas=analise.batidas, tempo_forte=analise.tempo_forte,
+        )
         arquivos.update(exportar(partitura, str(saida / "partitura")))
     marcar("materiais")
 
@@ -181,6 +185,7 @@ def processar(
             for a in analise.acordes
         ],
         "batidas": analise.batidas,
+        "tempo_forte": analise.tempo_forte,
         "levada": levada,
         "faixas": {nome: str(p) for nome, p in faixas.items()},
         "letra": [asdict(p) for p in palavras],

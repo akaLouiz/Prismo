@@ -1,6 +1,6 @@
 """Levada: o padrão de batida que o violão ou a guitarra realmente toca na música.
 
-Em cada compasso (4 tempos, a partir das batidas detectadas), o motor olha as 8
+Em cada compasso (4 tempos, contados a partir do "1" que a análise achou), o motor olha as 8
 colcheias e marca onde há ataque de palhetada na faixa isolada do instrumento.
 As colcheias atacadas na maioria dos compassos formam a levada da música.
 
@@ -18,9 +18,10 @@ JANELA = 0.06  # segundos em volta de cada colcheia em que um ataque conta
 MINIMO_COMPASSOS = 2
 
 
-def detectar_levada(sinal: np.ndarray, sr: int, batidas: list[float]) -> dict | None:
+def detectar_levada(sinal: np.ndarray, sr: int, batidas: list[float], tempo_forte: int = 0) -> dict | None:
     """Retorna {"padrao": [8 x "baixo"|"cima"|"pausa"], "confianca": 0..1, "compassos": n}.
 
+    `tempo_forte` é o índice, em `batidas`, do primeiro "1" do compasso.
     `None` quando não dá para dizer (poucos compassos, instrumento quase mudo ou sem
     nenhuma colcheia atacada de forma consistente).
     """
@@ -38,7 +39,7 @@ def detectar_levada(sinal: np.ndarray, sr: int, batidas: list[float]) -> dict | 
         return float(envelope[sel].max() / referencia) if sel.any() else 0.0
 
     compassos = []
-    for inicio in range(0, len(batidas) - 4, 4):
+    for inicio in range(tempo_forte, len(batidas) - 4, 4):
         tempos_compasso = batidas[inicio:inicio + 5]
         forcas = []
         for k in range(4):

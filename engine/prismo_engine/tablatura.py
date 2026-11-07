@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from itertools import product
 
 from .models import Nota
+from .ritmo import origem_dos_compassos, posicao_em_tempos
 
 # Afinações em MIDI, da corda mais grave para a mais aguda
 AFINACOES = {
@@ -208,11 +209,15 @@ def renderizar_tablatura(
     compassos_por_linha: int = 4,
     divisoes_por_tempo: int = 4,
     inicio_musica: float = 0.0,
+    batidas: list[float] | None = None,
+    tempo_forte: int = 0,
 ) -> str:
     """Desenha a tablatura em texto (ASCII), com barras de compasso.
 
     Cada tempo é dividido em semicolcheias; cada divisão ocupa 3 caracteres,
-    o que acomoda casas de dois dígitos.
+    o que acomoda casas de dois dígitos. Com `batidas`, as notas seguem os tempos
+    reais da gravação e os compassos começam no "1" (`tempo_forte`); sem elas, usa
+    uma grade fixa de `bpm` a partir de `inicio_musica`.
     """
     afinacao = AFINACOES.get(instrumento, AFINACOES["guitarra"])
     n_cordas = len(afinacao)
@@ -222,9 +227,15 @@ def renderizar_tablatura(
     seg_por_divisao = 60.0 / bpm / divisoes_por_tempo
     divisoes_por_compasso = tempos_por_compasso * divisoes_por_tempo
 
+    usar_batidas = batidas is not None and len(batidas) >= 2
+    origem = origem_dos_compassos(tempo_forte) if usar_batidas else 0
+
     grade: dict[int, list[Posicao]] = {}
     for ev in eventos:
-        slot = round((ev.inicio - inicio_musica) / seg_por_divisao)
+        if usar_batidas:
+            slot = round((posicao_em_tempos(ev.inicio, batidas) - origem) * divisoes_por_tempo)
+        else:
+            slot = round((ev.inicio - inicio_musica) / seg_por_divisao)
         slot = max(slot, 0)
         while slot in grade:  # dois eventos no mesmo slot: empurra o segundo
             slot += 1

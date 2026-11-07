@@ -9,6 +9,7 @@ from __future__ import annotations
 from music21 import clef, key, metadata, meter, note, stream, tempo
 
 from .models import Nota, Tonalidade
+from .ritmo import bpm_das_batidas, origem_dos_compassos, posicao_em_tempos
 
 # Instrumentos transpositores: quantos semitons a partitura soa acima do real
 TRANSPOSICAO = {
@@ -36,8 +37,7 @@ def linha_melodica(notas: list[Nota]) -> list[Nota]:
     return [n for n in melodia if n.duracao > 0.04]
 
 
-def _quantizar(segundos: float, bpm: float, grade: float = 0.25) -> float:
-    semiminimas = segundos * bpm / 60.0
+def _quantizar(semiminimas: float, grade: float = 0.25) -> float:
     return round(semiminimas / grade) * grade
 
 
@@ -47,8 +47,24 @@ def criar_partitura(
     tom: Tonalidade,
     instrumento: str = "voz",
     titulo: str = "Prismo",
+    batidas: list[float] | None = None,
+    tempo_forte: int = 0,
 ) -> stream.Score:
+    """Com `batidas`, cada nota vai para o tempo real da gravação em que soa, e o
+    compasso 1 começa no "1" (ou 4 tempos antes, se houver anacruse; ver
+    `origem_dos_compassos`). Sem elas, usa uma grade fixa de `bpm` desde o segundo 0."""
+    import numpy as np
+
     melodia = linha_melodica(notas)
+    if batidas is not None and len(batidas) >= 2:
+        origem = origem_dos_compassos(tempo_forte)
+        bpm = bpm_das_batidas(np.asarray(batidas), bpm)
+
+        def em_semiminimas(t: float) -> float:
+            return float(posicao_em_tempos(t, batidas)) - origem
+    else:
+        def em_semiminimas(t: float) -> float:
+            return t * bpm / 60.0
     deslocamento = TRANSPOSICAO.get(instrumento, 0)
 
     parte = stream.Part()
@@ -62,8 +78,8 @@ def criar_partitura(
 
     ultimo_fim = 0.0
     for n in melodia:
-        inicio = _quantizar(n.inicio, bpm)
-        duracao = max(_quantizar(n.duracao, bpm), 0.25)
+        inicio = max(_quantizar(em_semiminimas(n.inicio)), 0.0)
+        duracao = max(_quantizar(em_semiminimas(n.fim)) - inicio, 0.25)
         if inicio < ultimo_fim:
             inicio = ultimo_fim
         nota = note.Note(n.midi + deslocamento, quarterLength=duracao)

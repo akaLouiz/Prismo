@@ -56,6 +56,7 @@ class Analise:
     tonalidade: Tonalidade
     batidas: list[float] = field(default_factory=list)
     acordes: list[Acorde] = field(default_factory=list)
+    tempo_forte: int = 0  # índice, em `batidas`, do primeiro tempo "1" do compasso
 
     def para_dict(self) -> dict:
         return asdict(self)
