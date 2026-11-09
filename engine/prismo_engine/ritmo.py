@@ -110,6 +110,66 @@ def completar_bordas(batidas: np.ndarray, sinal: np.ndarray, sr: int) -> np.ndar
     return np.concatenate([antes[::-1], batidas, depois])
 
 
+def ataques(sinal: np.ndarray, sr: int, salto: int = 128, sensibilidade: float = 0.08) -> np.ndarray:
+    """Tempos (s) dos ataques de verdade: picos da força de ataque acima da média local.
+
+    O limiar acompanha o nível do trecho, então o "chiado" constante de uma faixa
+    separada (vazamento, cordas soando) não vira ataque.
+    """
+    if np.abs(sinal).sum() == 0:
+        return np.array([])
+    env = librosa.onset.onset_strength(y=sinal, sr=sr, hop_length=salto)
+    if env.max() <= 0:
+        return np.array([])
+    env = env / env.max()
+    fps = sr / salto
+    media = max(1, int(0.12 * fps))
+    picos = librosa.util.peak_pick(
+        env, pre_max=3, post_max=3, pre_avg=media, post_avg=media,
+        delta=sensibilidade, wait=max(1, int(0.06 * fps)),
+    )
+    # O pico da força vem depois do início do som: recua até onde a subida passa de 30%
+    janela = max(2, int(0.04 * fps))
+    inicios = []
+    for p in picos:
+        base = float(env[max(0, p - janela):p + 1].min())
+        limiar = base + 0.3 * (env[p] - base)
+        j = p
+        while j > 0 and p - j < janela and env[j - 1] > limiar:
+            j -= 1
+        inicios.append(j)
+    return librosa.frames_to_time(np.array(inicios, dtype=int), sr=sr, hop_length=salto)
+
+
+def alinhar_aos_ataques(batidas: np.ndarray, sinal: np.ndarray, sr: int) -> np.ndarray:
+    """Encosta a grade nos ataques que se ouvem.
+
+    O rastreador marca o tempo no pico da força de ataque, que vem depois do início
+    do som: ~25 ms em áudio sintético e ~58 ms nas músicas reais testadas, o bastante
+    para a batida parecer "atrasada". Corrige o atraso médio e depois encaixa cada
+    tempo no ataque mais próximo, se houver um bem perto.
+    """
+    if len(batidas) < 4:
+        return batidas
+    picos = ataques(sinal, sr)
+    if len(picos) == 0:
+        return batidas
+
+    def mais_proximo(t: float) -> float:
+        return float(picos[np.argmin(np.abs(picos - t))])
+
+    desvios = [mais_proximo(b) - b for b in batidas]
+    desvios = [d for d in desvios if abs(d) <= 0.08]
+    if len(desvios) < len(batidas) // 3:
+        return batidas
+    ajuste = float(np.median(desvios))
+    alinhadas = []
+    for b in batidas + ajuste:
+        p = mais_proximo(b)
+        alinhadas.append(p if abs(p - b) <= 0.025 else b)
+    return np.maximum.accumulate(np.maximum(np.array(alinhadas), 0.0))
+
+
 def detectar_tempo_forte(
     batidas: np.ndarray,
     envelope_grave: np.ndarray,

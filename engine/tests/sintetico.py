@@ -158,3 +158,30 @@ def gerar_musica_com_bateria(colcheias_atacadas, bpm: float = 100, compassos: in
     mistura = 0.6 * violao + bateria
     mistura /= np.abs(mistura).max()
     return mistura.astype(np.float32), violao.astype(np.float32), bateria.astype(np.float32), uns
+
+
+def gerar_levada_variada(compassos_colcheias, bpm: float = 100, ruido: float = 0.0):
+    """Violão cuja levada muda a cada compasso (`compassos_colcheias`: uma lista de
+    colcheias atacadas por compasso), opcionalmente com um ruído de fundo constante,
+    como o vazamento de uma faixa separada. Retorna (sinal, batidas, golpes_reais)."""
+    batida = 60.0 / bpm
+    inicio = 0.5
+    total = inicio + len(compassos_colcheias) * 4 * batida + 1.0
+    sinal = np.zeros(int(total * SR))
+    acorde = [52, 55, 59, 64, 67]
+    golpes = []
+    for c, colcheias in enumerate(compassos_colcheias):
+        for k in colcheias:
+            t = inicio + c * 4 * batida + k * batida / 2
+            golpes.append((t, "baixo" if k % 2 == 0 else "cima"))
+            ini = int(t * SR)
+            for i, m in enumerate(acorde):
+                n = _nota(m, batida, decaimento=5.0) * 0.2
+                n *= np.minimum(1.0, np.linspace(8.0, 0.0, len(n)))
+                a = ini + i * 60
+                sinal[a:a + len(n)] += n[: len(sinal) - a]
+    sinal /= np.abs(sinal).max()
+    if ruido:
+        sinal += np.random.default_rng(7).normal(0, ruido, len(sinal))
+    batidas = [inicio + i * batida for i in range(len(compassos_colcheias) * 4 + 1)]
+    return sinal.astype(np.float32), batidas, golpes

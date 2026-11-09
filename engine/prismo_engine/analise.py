@@ -229,6 +229,7 @@ def analisar(
         evidencias.append(ritmo.envelope_de_ataques(sinal_bateria[: len(sinal)], sr))
     tempos_batidas = ritmo.corrigir_andamento(tempos_batidas, evidencias)
     tempos_batidas = ritmo.completar_bordas(tempos_batidas, sinal, sr)
+    tempos_batidas = ritmo.alinhar_aos_ataques(tempos_batidas, pulso, sr)
     bpm = ritmo.bpm_das_batidas(tempos_batidas, 120.0)
 
     croma = librosa.feature.chroma_cqt(y=harmonico, sr=sr, hop_length=SALTO)

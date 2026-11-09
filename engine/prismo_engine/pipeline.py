@@ -13,7 +13,7 @@ import numpy as np
 from . import ia
 from .analise import analisar, carregar_audio
 from .cifra import gerar_cifra, limpar_acordes
-from .levada import detectar_levada
+from .levada import detectar_golpes, detectar_levada
 from .models import Nota, Palavra
 from .tablatura import gerar_tablatura, renderizar_tablatura
 from .teoria import nome_acorde, nome_tonalidade, sugerir_capotraste
@@ -105,9 +105,12 @@ def processar(
     analise.acordes = limpar_acordes(analise.acordes)
     # Levada: só com a faixa de violão/guitarra isolada (na mistura, a bateria confundiria)
     levada = None
+    golpes: list[dict] = []
     if "guitarra" in faixas and instrumento in ("guitarra", "violao"):
         try:
-            levada = detectar_levada(carregar_audio(str(faixas["guitarra"]))[0], sr, analise.batidas, analise.tempo_forte)
+            sinal_violao = carregar_audio(str(faixas["guitarra"]))[0]
+            levada = detectar_levada(sinal_violao, sr, analise.batidas, analise.tempo_forte)
+            golpes = detectar_golpes(sinal_violao, sr, analise.batidas, analise.tempo_forte)
         except Exception as e:  # a levada é um extra: nunca derruba o processamento
             avisos.append(f"Levada não detectada: {e}")
     marcar("analise")
@@ -187,6 +190,7 @@ def processar(
         "batidas": analise.batidas,
         "tempo_forte": analise.tempo_forte,
         "levada": levada,
+        "golpes": golpes,
         "faixas": {nome: str(p) for nome, p in faixas.items()},
         "letra": [asdict(p) for p in palavras],
         "idioma_letra": idioma_letra,

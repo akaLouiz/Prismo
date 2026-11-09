@@ -247,7 +247,12 @@ def test_acha_andamento_e_o_um_do_compasso(bpm, anacruse):
     a = analisar(mistura, SR)
     assert abs(a.bpm - bpm) < 1.5
     um = a.batidas[a.tempo_forte]
-    assert min(abs(um - u) for u in uns) < 0.06, (um, uns[:2])
+    assert min(abs(um - u) for u in uns) < 0.02, (um, uns[:2])
+    # Sem atraso: cada tempo cai no ataque que se ouve (antes ficava 25 a 58 ms depois)
+    periodo = 60 / bpm
+    reais = np.array([uns[0] + k * periodo for k in range(-4, 4 * len(uns) + 4)])
+    erros = [abs(reais[np.argmin(np.abs(reais - b))] - b) for b in a.batidas]
+    assert np.median(erros) < 0.015
     # Os tempos antes do primeiro "1" (anacruse) não podem sumir
     assert a.batidas[0] < uns[0] - (anacruse - 0.5) * 60 / bpm if anacruse else True
     levada = detectar_levada(violao, SR, a.batidas, a.tempo_forte)
@@ -297,3 +302,29 @@ def test_cifra_por_compassos_segue_as_batidas():
     cifra = gerar_cifra(acordes, EM_MENOR, 120, batidas=batidas, tempo_forte=1)
     linha = [l for l in cifra.splitlines() if l.startswith("|")][0]
     assert [c.strip() for c in linha.strip("|").split("|")][:4] == ["%", "Em", "C", "G"]
+
+
+
+def test_golpes_seguem_o_violao_compasso_a_compasso():
+    """A levada muda a cada compasso: os golpes devem acompanhar o que o violão toca, não um padrão fixo."""
+    from sintetico import gerar_levada_variada
+    from prismo_engine.levada import detectar_golpes
+
+    compassos = [[0, 2, 4, 6], [0, 1, 3, 4, 5, 6], [0, 3, 4, 6], [0, 2, 3, 5, 6, 7]] * 2
+    sinal, batidas, reais = gerar_levada_variada(compassos, bpm=96, ruido=0.004)
+    golpes = detectar_golpes(sinal, SR, batidas)
+    assert len(golpes) == len(reais)
+    for g, (t, direcao) in zip(golpes, reais):
+        assert abs(g["t"] - t) < 0.03
+        assert g["dir"] == direcao
+
+
+def test_levada_nao_marca_o_ruido_de_fundo():
+    """Faixa separada tem chiado constante; antes, qualquer ruído contava como ataque e
+    a levada virava todas as colcheias (↓↑↓↑↓↑↓↑), como nas músicas reais testadas."""
+    from sintetico import gerar_levada_variada
+    from prismo_engine.levada import detectar_levada
+
+    sinal, batidas, _ = gerar_levada_variada([[0, 3, 4, 6]] * 8, bpm=100, ruido=0.01)
+    levada = detectar_levada(sinal, SR, batidas)
+    assert levada["padrao"] == ["baixo", "pausa", "pausa", "cima", "baixo", "pausa", "baixo", "pausa"]
